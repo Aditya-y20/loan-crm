@@ -27,24 +27,49 @@ export const register = async (username, password) => {
   return res.json();
 }
 
-export const fetchClients = async (token) => {
-  const res = await fetch(`${API_URL}/clients/`, {
+export const fetchLeads = async (token) => {
+  const res = await fetch(`${API_URL}/leads/`, {
     headers: { 'Authorization': `Bearer ${token}` }
   });
-  if (!res.ok) throw new Error('Failed to fetch clients');
+  if (!res.ok) throw new Error('Failed to fetch leads');
   return res.json();
 };
 
-export const createClient = async (token, clientData) => {
-  const res = await fetch(`${API_URL}/clients/`, {
+export const fetchLead = async (token, leadId) => {
+  const res = await fetch(`${API_URL}/leads/${leadId}`, {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error('Failed to fetch lead profile');
+  return res.json();
+};
+
+export const createLead = async (token, leadData) => {
+  const res = await fetch(`${API_URL}/leads/`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`
     },
-    body: JSON.stringify(clientData)
+    body: JSON.stringify(leadData)
   });
-  if (!res.ok) throw new Error('Failed to create client');
+  if (!res.ok) throw new Error('Failed to create lead');
+  return res.json();
+};
+
+export const updateLeadStatus = async (token, leadId, newStatus) => {
+  const res = await fetch(`${API_URL}/leads/${leadId}/status`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify({ lead_status: newStatus })
+  });
+  
+  if (!res.ok) {
+      const errorData = await res.json().catch(() => null);
+      throw new Error(errorData?.detail || 'Failed to update lead status');
+  }
   return res.json();
 };
 
@@ -56,30 +81,38 @@ export const fetchLoans = async (token) => {
   return res.json();
 };
 
-export const createLoan = async (token, loanData) => {
-  const res = await fetch(`${API_URL}/loans/`, {
+export const recordPayment = async (token, loanId, amountDue) => {
+  const res = await fetch(`${API_URL}/payments/record`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`
     },
-    body: JSON.stringify(loanData)
+    body: JSON.stringify({ loan_id: loanId, amount_due: amountDue })
   });
-  if (!res.ok) throw new Error('Failed to create loan');
+  if (!res.ok) throw new Error('Failed to record payment');
   return res.json();
 };
 
-export const updateLoan = async (token, loanId, updateData) => {
-  const res = await fetch(`${API_URL}/loans/${loanId}`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
-    },
-    body: JSON.stringify(updateData)
-  });
-  if (!res.ok) throw new Error('Failed to update loan');
-  return res.json();
+export const uploadDocument = async (token, leadId, file, documentType) => {
+    const formData = new FormData();
+    formData.append("lead_id", leadId);
+    formData.append("document_type", documentType);
+    formData.append("file", file);
+
+    const res = await fetch(`${API_URL}/documents/upload`, {
+        method: "POST",
+        headers: {
+            "Authorization": `Bearer ${token}`
+        },
+        body: formData,
+    });
+
+    if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.detail || "Failed to upload document");
+    }
+    return res.json();
 };
 
 export const fetchUserProfile = async (token) => {

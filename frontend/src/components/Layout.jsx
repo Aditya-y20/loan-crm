@@ -10,11 +10,11 @@ const Sidebar = ({ setToken, user }) => {
 
   let navItems = [
     { name: 'Dashboard', icon: <LayoutDashboard size={20} />, path: '/' },
-    { name: 'Loans', icon: <CreditCard size={20} />, path: '/loans' },
+    { name: 'Payments', icon: <CreditCard size={20} />, path: '/payments' },
   ];
 
   if (user?.role !== 'customer') {
-    navItems.splice(1, 0, { name: 'Clients', icon: <Users size={20} />, path: '/clients' });
+    navItems.splice(1, 0, { name: 'Pipeline', icon: <Users size={20} />, path: '/leads' });
   }
 
   if (user?.role === 'admin') {

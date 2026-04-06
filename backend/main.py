@@ -1,14 +1,19 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
 from jose import JWTError, jwt
+import os
+import uuid
+import shutil
 
 from . import models, schemas, crud, auth
 from .database import SessionLocal, engine
 
-models.Base.metadata.create_all(bind=engine)
+# Ensure uploads directory exists
+UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 app = FastAPI(title="Loan CRM Backend")
 
@@ -82,14 +87,13 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     new_user = crud.create_user(db=db, user=user)
     
     if new_user.role == "customer":
-        # Scaffold an empty client profile automatically linked to this account
-        empty_client = models.Client(
+        empty_lead = models.Lead(
             first_name=new_user.username, 
             last_name="(Customer)", 
             email=f"{new_user.username}@placeholder.com",
-            account_id=new_user.id
+            created_by_id=new_user.id
         )
-        db.add(empty_client)
+        db.add(empty_lead)
         db.commit()
         
     return new_user
@@ -98,39 +102,123 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
 async def read_users_me(current_user: schemas.User = Depends(get_current_user)):
     return current_user
 
-# Clients endpoints
-@app.post("/clients/", response_model=schemas.Client)
-def create_client(client: schemas.ClientCreate, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
-    # Assign client to the creating officer or admin
-    return crud.create_client(db=db, client=client, officer_id=current_user.id)
+# Leads endpoints
+@app.post("/leads/", response_model=schemas.Lead)
+def create_lead(lead: schemas.LeadCreate, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
+    return crud.create_lead(db=db, lead=lead, created_by_id=current_user.id, assigned_officer_id=current_user.id)
 
-@app.get("/clients/", response_model=List[schemas.Client])
-def read_clients(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
-    return crud.get_clients(db, user=current_user, skip=skip, limit=limit)
+@app.get("/leads/", response_model=List[schemas.Lead])
+def read_leads(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
+    return crud.get_leads(db, user=current_user, skip=skip, limit=limit)
 
-@app.get("/clients/{client_id}", response_model=schemas.Client)
-def read_client(client_id: int, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
-    db_client = crud.get_client(db, client_id=client_id)
-    if db_client is None:
-        raise HTTPException(status_code=404, detail="Client not found")
-    return db_client
+@app.get("/leads/{lead_id}", response_model=schemas.Lead)
+def read_lead(lead_id: int, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
+    db_lead = crud.get_lead(db, lead_id=lead_id)
+    if db_lead is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    return db_lead
 
-# Loans endpoints
-@app.post("/loans/", response_model=schemas.Loan)
-def create_loan(loan: schemas.LoanCreate, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
-    # Verify client exists
-    db_client = crud.get_client(db, client_id=loan.client_id)
-    if db_client is None:
-        raise HTTPException(status_code=404, detail="Client not found")
-    return crud.create_loan(db=db, loan=loan, client_id=loan.client_id)
+@app.patch("/leads/{lead_id}/status", response_model=schemas.Lead)
+def update_lead_status(lead_id: int, status_update: dict, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
+    new_status = status_update.get("lead_status")
+    if not new_status:
+        raise HTTPException(status_code=400, detail="Missing lead_status in payload")
+    
+    db_lead = crud.get_lead(db, lead_id=lead_id)
+    if not db_lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+        
+    # Transactional logic for Approval -> Loan generation
+    if new_status == "approved" and db_lead.lead_status != "approved":
+        # Pre-validation constraint before mutating
+        if db_lead.loan_amount is None or db_lead.rate is None or db_lead.tenure is None or db_lead.emi is None:
+            raise HTTPException(
+                status_code=400, 
+                detail="Cannot approve lead. Missing financial parameters (loan_amount, rate, tenure, emi). Please run calculator first."
+            )
+            
+        try:
+            # Spawn Loan
+            new_loan = models.Loan(
+                lead_id=db_lead.id,
+                amount=db_lead.loan_amount,
+                interest_rate=db_lead.rate,
+                tenure_months=db_lead.tenure,
+                emi_amount=db_lead.emi,
+                loan_type=db_lead.loan_type or "standard",
+                status="active"
+            )
+            db.add(new_loan)
+            
+            db_lead.lead_status = "approved"
+            db.commit()
+            db.refresh(db_lead)
+            
+            crud.generate_alert(db, current_user.id, f"Lead #{db_lead.id} approved and Loan generated.", "success", lead_id=db_lead.id)
+            return db_lead
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(status_code=500, detail="Database transaction failed during loan generation.")
+            
+    # Default non-approval status update
+    db_lead.lead_status = new_status
+    db.commit()
+    db.refresh(db_lead)
+    return db_lead
 
+# Documents endpoints
+MAX_FILE_SIZE = 10 * 1024 * 1024 # 10MB
+ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "application/pdf"]
+
+@app.post("/documents/upload", response_model=schemas.Document)
+async def upload_document(
+    lead_id: int = Form(...),
+    document_type: str = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db), 
+    current_user: schemas.User = Depends(get_current_user)
+):
+    if file.content_type not in ALLOWED_MIME_TYPES:
+        raise HTTPException(status_code=400, detail="Invalid file type. Only JPEG, PNG, and PDF are allowed.")
+        
+    # Check bounds
+    file.file.seek(0, os.SEEK_END)
+    file_size = file.file.tell()
+    file.file.seek(0)
+    
+    if file_size > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail="File size exceeds the 10MB limit.")
+        
+    ext = file.filename.split('.')[-1] if '.' in file.filename else 'bin'
+    safe_filename = f"{uuid.uuid4()}.{ext}"
+    physical_path = os.path.join(UPLOAD_DIR, safe_filename)
+    
+    try:
+        with open(physical_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Could not securely write file to disk.")
+        
+    # Scaffold Document
+    doc_create = schemas.DocumentCreate(
+        lead_id=lead_id,
+        document_type=document_type,
+        file_path=safe_filename
+    )
+    db_doc = crud.create_document(db=db, doc=doc_create)
+    
+    db_doc.uploaded_by = current_user.id
+    db_doc.status = "uploaded"
+    db.commit()
+    db.refresh(db_doc)
+    
+    return db_doc
+
+# Loans & Payments endpoints
 @app.get("/loans/", response_model=List[schemas.Loan])
 def read_loans(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
     return crud.get_loans(db, user=current_user, skip=skip, limit=limit)
 
-@app.put("/loans/{loan_id}", response_model=schemas.Loan)
-def update_loan(loan_id: int, loan_update: schemas.LoanUpdate, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
-    db_loan = crud.update_loan(db, loan_id=loan_id, loan_update=loan_update)
-    if db_loan is None:
-        raise HTTPException(status_code=404, detail="Loan not found")
-    return db_loan
+@app.post("/payments/record", response_model=schemas.Payment)
+def record_payment(payment: schemas.PaymentCreate, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
+    return crud.create_payment(db=db, payment=payment)

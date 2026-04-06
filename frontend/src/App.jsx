@@ -4,8 +4,9 @@ import { fetchUserProfile } from './api';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
-import Clients from './pages/Clients';
-import Loans from './pages/Loans';
+import Leads from './pages/Leads';
+import LeadProfile from './pages/LeadProfile';
+import Payments from './pages/Payments';
 import Team from './pages/Team';
 
 function App() {
@@ -38,8 +39,9 @@ function App() {
       <Routes>
         <Route path="/" element={<Layout setToken={setToken} user={user} />}>
           <Route index element={<Dashboard token={token} user={user} />} />
-          <Route path="clients" element={<Clients token={token} user={user} />} />
-          <Route path="loans" element={<Loans token={token} user={user} />} />
+          <Route path="leads" element={<Leads token={token} user={user} />} />
+          <Route path="leads/:id" element={<LeadProfile token={token} user={user} />} />
+          <Route path="payments" element={<Payments token={token} user={user} />} />
           <Route path="team" element={<Team token={token} user={user} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
