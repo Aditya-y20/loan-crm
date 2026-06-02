@@ -102,6 +102,14 @@ const Leads = ({ token }) => {
     const lead = leads.find(l => l.id.toString() === leadId);
     if (!lead || lead.lead_status === newStatus) return;
 
+    if (newStatus === 'approved') {
+        if (!lead.loan_amount || !lead.rate || !lead.tenure || !lead.emi) {
+            alert(`Financial parameters are required to approve a loan. Redirecting to ${lead.first_name}'s profile to execute the Term Sheet Calculator.`);
+            navigate(`/leads/${lead.id}`);
+            return;
+        }
+    }
+
     // Optimistic Update
     setLeads(prev => prev.map(l => l.id.toString() === leadId ? { ...l, lead_status: newStatus } : l));
 

@@ -56,14 +56,14 @@ export const createLead = async (token, leadData) => {
   return res.json();
 };
 
-export const updateLeadStatus = async (token, leadId, newStatus) => {
+export const updateLeadStatus = async (token, leadId, newStatus, additionalData = {}) => {
   const res = await fetch(`${API_URL}/leads/${leadId}/status`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`
     },
-    body: JSON.stringify({ lead_status: newStatus })
+    body: JSON.stringify({ lead_status: newStatus, ...additionalData })
   });
   
   if (!res.ok) {

@@ -130,6 +130,15 @@ def update_lead_status(lead_id: int, status_update: dict, db: Session = Depends(
         
     # Transactional logic for Approval -> Loan generation
     if new_status == "approved" and db_lead.lead_status != "approved":
+        if "loan_amount" in status_update:
+            db_lead.loan_amount = float(status_update["loan_amount"])
+        if "rate" in status_update:
+            db_lead.rate = float(status_update["rate"])
+        if "tenure" in status_update:
+            db_lead.tenure = int(status_update["tenure"])
+        if "emi" in status_update:
+            db_lead.emi = float(status_update["emi"])
+            
         # Pre-validation constraint before mutating
         if db_lead.loan_amount is None or db_lead.rate is None or db_lead.tenure is None or db_lead.emi is None:
             raise HTTPException(
