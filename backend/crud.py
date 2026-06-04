@@ -99,8 +99,11 @@ def get_payments(db: Session, user: schemas.User, skip: int = 0, limit: int = 10
     return db.query(models.Payment).join(models.Loan).join(models.Lead).filter(models.Lead.assigned_officer_id == user.id).offset(skip).limit(limit).all()
 
 def create_payment(db: Session, payment: schemas.PaymentCreate):
-    from datetime import datetime
-    db_payment = models.Payment(**payment.dict(), paid_at=datetime.utcnow().date())
+    from datetime import date
+    payment_data = payment.dict()
+    if payment_data.get('amount_paid', 0) > 0:
+        payment_data['paid_at'] = date.today()
+    db_payment = models.Payment(**payment_data)
     db.add(db_payment)
     db.commit()
     db.refresh(db_payment)

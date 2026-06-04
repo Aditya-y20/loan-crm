@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import { fetchLeads, fetchLoans } from '../api';
-import { Users, CreditCard, TrendingUp, Activity, IndianRupee, Bell } from 'lucide-react';
+import { Users, CreditCard, TrendingUp, Activity, IndianRupee, Bell, AlertCircle } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, PieChart, Pie, Cell, LineChart, Line, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
+
+const COLORS = ['#3B82F6', '#F59E0B', '#10B981', '#EF4444', '#8B5CF6', '#EC4899'];
 
 const StatCard = ({ title, value, icon, trend, colorClass }) => (
   <div className="glass-card p-6 flex flex-col group hover:border-gray-600 transition-colors">
@@ -26,8 +29,10 @@ const Dashboard = ({ token, user }) => {
     totalLoans: 0,
     activeLoans: 0,
     totalDisbursed: 0,
-    totalCollected: 0
+    totalCollected: 0,
+    overduePayments: 0
   });
+  const [chartData, setChartData] = useState({ leads: [], collections: [] });
   const [notifications, setNotifications] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -44,19 +49,48 @@ const Dashboard = ({ token, user }) => {
         
         // Aggregate collections from payments
         let collected = 0;
+        let overdueCount = 0;
+        const collectionsMap = {};
+        const todayStr = new Date().toISOString().split('T')[0];
+
         loans.forEach(loan => {
            loan.payments.forEach(p => {
                collected += p.amount_paid;
+               
+               const dueDateStr = new Date(p.due_date).toISOString().split('T')[0];
+               if (p.status === 'late' || (p.status !== 'paid' && dueDateStr < todayStr)) {
+                   overdueCount++;
+               }
+
+               if (p.amount_paid > 0 && p.paid_at) {
+                   const dateKey = new Date(p.paid_at).toISOString().split('T')[0];
+                   collectionsMap[dateKey] = (collectionsMap[dateKey] || 0) + p.amount_paid;
+               }
            });
         });
+        
+        const statusMap = {};
+        leads.forEach(l => {
+           const s = l.lead_status || 'new';
+           statusMap[s] = (statusMap[s] || 0) + 1;
+        });
+
+        const formattedLeadsData = Object.entries(statusMap)
+            .map(([name, value]) => ({ name: name.replace('_', ' ').toUpperCase(), value }));
+
+        const formattedCollectionsData = Object.entries(collectionsMap)
+            .map(([date, amount]) => ({ date, amount }))
+            .sort((a, b) => new Date(a.date) - new Date(b.date));
 
         setStats({
           totalLeads: leads.length,
           totalLoans: loans.length,
           activeLoans: activeLoans.length,
           totalDisbursed: totalDisbursed,
-          totalCollected: collected
+          totalCollected: collected,
+          overduePayments: overdueCount
         });
+        setChartData({ leads: formattedLeadsData, collections: formattedCollectionsData });
 
         // Aggregate alerts securely from leads
         let allAlerts = [];
@@ -112,7 +146,7 @@ const Dashboard = ({ token, user }) => {
         </div>
       </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
         {user?.role !== 'customer' && (
           <StatCard 
             title="Total Prospects (Leads)" 
@@ -139,13 +173,60 @@ const Dashboard = ({ token, user }) => {
           icon={<Activity size={24} className="text-emerald-400" />} 
           colorClass="border border-emerald-500/20 shadow-[inset_0px_0px_8px_rgba(16,185,129,0.2)]"
         />
+        <StatCard 
+          title="Overdue Payments" 
+          value={stats.overduePayments} 
+          icon={<AlertCircle size={24} className="text-red-400" />} 
+          colorClass="border border-red-500/20 shadow-[inset_0px_0px_8px_rgba(239,68,68,0.2)]"
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">
-        <div className="lg:col-span-2 glass-card p-6 min-h-[300px] flex items-center justify-center">
-            <div className="text-center">
-               <Activity size={48} className="text-primary/30 mx-auto mb-4" />
-               <p className="text-text-muted">Pipeline charts will render here</p>
+        <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="glass-card p-6 min-h-[300px] flex flex-col">
+               <h3 className="font-semibold text-text-main mb-4">Pipeline Distribution</h3>
+               <div className="flex-1 min-h-[250px]">
+                 <ResponsiveContainer width="100%" height="100%">
+                   <PieChart>
+                     <Pie
+                       data={chartData.leads}
+                       cx="50%"
+                       cy="50%"
+                       innerRadius={60}
+                       outerRadius={80}
+                       paddingAngle={5}
+                       dataKey="value"
+                     >
+                       {chartData.leads.map((entry, index) => (
+                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                       ))}
+                     </Pie>
+                     <Tooltip 
+                       contentStyle={{ backgroundColor: 'rgba(17, 24, 39, 0.8)', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff' }} 
+                       itemStyle={{ color: '#fff' }}
+                     />
+                     <Legend verticalAlign="bottom" height={36} iconType="circle" />
+                   </PieChart>
+                 </ResponsiveContainer>
+               </div>
+            </div>
+            
+            <div className="glass-card p-6 min-h-[300px] flex flex-col">
+               <h3 className="font-semibold text-text-main mb-4">EMI Collections Over Time</h3>
+               <div className="flex-1 min-h-[250px]">
+                 <ResponsiveContainer width="100%" height="100%">
+                   <LineChart data={chartData.collections}>
+                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" vertical={false} />
+                     <XAxis dataKey="date" stroke="rgba(255,255,255,0.5)" fontSize={12} tickLine={false} axisLine={false} />
+                     <YAxis stroke="rgba(255,255,255,0.5)" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(val) => `₹${val}`} />
+                     <Tooltip 
+                       contentStyle={{ backgroundColor: 'rgba(17, 24, 39, 0.8)', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff' }} 
+                       formatter={(value) => [`₹${value}`, 'Collection']}
+                     />
+                     <Line type="monotone" dataKey="amount" stroke="#10B981" strokeWidth={3} dot={{ r: 4, fill: '#10B981', strokeWidth: 2, stroke: '#111827' }} activeDot={{ r: 6 }} />
+                   </LineChart>
+                 </ResponsiveContainer>
+               </div>
             </div>
         </div>
         
