@@ -185,7 +185,7 @@ const Dashboard = ({ token, user }) => {
         <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="glass-card p-6 min-h-[300px] flex flex-col">
                <h3 className="font-semibold text-text-main mb-4">Pipeline Distribution</h3>
-               <div className="flex-1 min-h-[250px]">
+               <div className="h-[250px] w-full">
                  <ResponsiveContainer width="100%" height="100%">
                    <PieChart>
                      <Pie
@@ -213,7 +213,7 @@ const Dashboard = ({ token, user }) => {
             
             <div className="glass-card p-6 min-h-[300px] flex flex-col">
                <h3 className="font-semibold text-text-main mb-4">EMI Collections Over Time</h3>
-               <div className="flex-1 min-h-[250px]">
+               <div className="h-[250px] w-full">
                  <ResponsiveContainer width="100%" height="100%">
                    <LineChart data={chartData.collections}>
                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" vertical={false} />
